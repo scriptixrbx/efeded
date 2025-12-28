@@ -3,6 +3,9 @@ local TeleportService = game:GetService("TeleportService")
 local player = Players.LocalPlayer
 local placeId = game.PlaceId
 
+-- Сохраняем данные в глобальную переменную для авто-рестарта
+_G.AutoSpamActive = true
+
 local messages = {
     "Продам Godly дешево за грн. Пиши: Hexon_Shop",
     "Godly за гривны. Быстро. Hexon_Shop",
@@ -39,121 +42,250 @@ end
 
 -- Функция отправки в чат
 local function sendMessage(text)
-    -- Добавляем стикеры
     local decoratedText = getRandomSticker() .. " " .. text .. " " .. getRandomSticker()
     
-    print("Пытаюсь отправить: " .. decoratedText)
+    -- Пробуем все методы отправки
+    local success = false
     
-    -- Пробуем старый чат
-    local success1 = pcall(function()
-        local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
-        if chatEvents then
-            local sayMessage = chatEvents:FindFirstChild("SayMessageRequest")
-            if sayMessage then
-                sayMessage:FireServer(decoratedText, "All")
-                print("Отправил через старый чат")
-                return true
-            end
-        end
-        return false
-    end)
-    
-    -- Пробуем новый чат
-    local success2 = pcall(function()
-        local textChatService = game:GetService("TextChatService")
-        local rbxGeneral = textChatService:FindFirstChild("TextChannels") and 
-                          textChatService.TextChannels:FindFirstChild("RBXGeneral")
-        if rbxGeneral then
-            rbxGeneral:SendAsync(decoratedText)
-            print("Отправил через новый чат")
-            return true
-        end
-        return false
-    end)
-    
-    -- Пробуем напрямую через RemoteEvent если есть
-    local success3 = pcall(function()
-        game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(decoratedText, "All")
-        print("Отправил напрямую")
-        return true
-    end)
-    
-    if not (success1 or success2 or success3) then
-        print("Не удалось отправить сообщение")
+    -- Метод 1: Старый чат
+    local function tryOldChat()
+        local success1, err1 = pcall(function()
+            game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(decoratedText, "All")
+        end)
+        return success1
     end
-end
-
--- Функция проверки доступности чата
-local function isChatAvailable()
-    local oldChat = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
-    local newChat = game:GetService("TextChatService"):FindFirstChild("TextChannels")
     
-    return oldChat ~= nil or newChat ~= nil
+    -- Метод 2: Новый чат
+    local function tryNewChat()
+        local success2, err2 = pcall(function()
+            game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(decoratedText)
+        end)
+        return success2
+    end
+    
+    -- Метод 3: Альтернативный путь к новому чату
+    local function tryNewChatAlt()
+        local success3, err3 = pcall(function()
+            local tcs = game:GetService("TextChatService")
+            if tcs:FindFirstChild("TextChannels") then
+                local general = tcs.TextChannels:FindFirstChild("RBXGeneral") or tcs.TextChannels:FindFirstChild("General")
+                if general then
+                    general:SendAsync(decoratedText)
+                end
+            end
+        end)
+        return success3
+    end
+    
+    success = tryOldChat() or tryNewChat() or tryNewChatAlt()
+    
+    if success then
+        print("✓ Отправлено: " .. decoratedText)
+    else
+        print("✗ Не удалось отправить")
+    end
+    
+    return success
 end
 
--- Функция ожидания чата
+-- Ожидание загрузки чата
 local function waitForChat()
-    local maxAttempts = 20
-    local attempts = 0
+    local maxWait = 10
+    local waited = 0
     
-    while attempts < maxAttempts do
-        if isChatAvailable() then
-            print("Чат доступен")
+    while waited < maxWait do
+        -- Проверяем старый чат
+        local oldChatExists = pcall(function()
+            return game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents ~= nil
+        end)
+        
+        -- Проверяем новый чат
+        local newChatExists = pcall(function()
+            return game:GetService("TextChatService").TextChannels ~= nil
+        end)
+        
+        if oldChatExists or newChatExists then
             return true
         end
-        attempts = attempts + 1
+        
+        waited = waited + 1
         task.wait(1)
     end
     
-    print("Чат не стал доступен")
     return false
 end
 
--- Основная функция
-local function mainLoop()
-    print("Начинаю основной цикл...")
+-- Главная функция скрипта
+local function startSpamming()
+    print("🚀 Запуск авто-спама...")
     
-    while true do
-        -- Ждем доступности чата после перезахода
+    -- Ждем загрузки игры
+    task.wait(5)
+    
+    local messageCount = 0
+    
+    while _G.AutoSpamActive do
+        -- Ждем доступности чата
         if waitForChat() then
             local shuffled = shuffle(messages)
+            messageCount = 0
             
             -- Отправляем 5 сообщений
             for i = 1, 5 do
-                sendMessage(shuffled[i])
-                task.wait(math.random(3, 5)) -- случайная задержка 3-5 секунд
+                if not _G.AutoSpamActive then break end
+                
+                local sent = sendMessage(shuffled[i])
+                if sent then
+                    messageCount = messageCount + 1
+                end
+                
+                -- Случайная задержка между сообщениями
+                local delay = math.random(3, 4)
+                for t = 1, delay do
+                    if not _G.AutoSpamActive then break end
+                    task.wait(1)
+                end
             end
             
-            -- Перезаход после 5 сообщений
-            print("Отправил 5 сообщений, перезахожу...")
-            task.wait(2)
-            
-            -- Простой перезаход
-            pcall(function()
-                TeleportService:Teleport(placeId)
-            end)
-            
-            -- Ждем немного перед повторной попыткой если перезаход не сработал
-            task.wait(10)
+            -- Перезаходим после 5 сообщений
+            if _G.AutoSpamActive and messageCount >= 3 then
+                print("🔄 Перезаход на новый сервер...")
+                
+                -- Ждем немного перед перезаходом
+                task.wait(2)
+                
+                -- Перезаходим
+                local success, error = pcall(function()
+                    TeleportService:Teleport(placeId)
+                end)
+                
+                if not success then
+                    print("⚠️ Ошибка при перезаходе: " .. tostring(error))
+                    task.wait(5)
+                else
+                    -- Ждем телепортацию
+                    task.wait(10)
+                end
+            else
+                -- Если отправили мало сообщений, ждем и продолжаем
+                task.wait(10)
+            end
         else
-            -- Если чат недоступен, ждем и пробуем перезайти
-            print("Чат недоступен, пробую перезайти...")
+            print("⏳ Чат не загрузился, жду...")
             task.wait(5)
-            pcall(function()
-                TeleportService:Teleport(placeId)
-            end)
-            task.wait(10)
         end
     end
 end
 
--- Запуск скрипта
-print("=== Авто-спам скрипт запущен ===")
-print("Игрок: " .. player.Name)
-print("Место: " .. placeId)
+-- Авто-рестарт при телепортации
+local function setupAutoRestart()
+    player.OnTeleport:Connect(function(state)
+        if state == Enum.TeleportState.Started then
+            -- Сохраняем скрипт для авто-запуска
+            local scriptCode = [[
+                task.wait(5)
+                if _G.AutoSpamActive == nil then
+                    _G.AutoSpamActive = true
+                end
+                
+                local Players = game:GetService("Players")
+                local TeleportService = game:GetService("TeleportService")
+                
+                -- Ждем загрузки
+                task.wait(8)
+                
+                -- Запускаем спам
+                while _G.AutoSpamActive do
+                    local success, err = pcall(function()
+                        -- Проверяем чат
+                        local chatLoaded = false
+                        for i = 1, 10 do
+                            local oldChat = pcall(function() return game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents end)
+                            local newChat = pcall(function() return game:GetService("TextChatService").TextChannels end)
+                            if oldChat or newChat then
+                                chatLoaded = true
+                                break
+                            end
+                            task.wait(1)
+                        end
+                        
+                        if chatLoaded then
+                            -- Отправляем сообщения
+                            local messages = {
+                                "Продам Godly дешево за грн. Пиши: Hexon_Shop",
+                                "Godly за гривны. Быстро. Hexon_Shop",
+                                "Купить Godly недорого. Оплата грн. Hexon_Shop",
+                                "Есть Godly по выгодной цене в грн. Hexon_Shop",
+                                "Godly для трейда за гривны. Hexon_Shop",
+                                "Дешевый Godly за грн. Пиши: Hexon_Shop",
+                                "Продажа Godly. Оплата в гривнах. Hexon_Shop",
+                                "Godly в наличии. Цена в грн. Hexon_Shop",
+                                "Покупай Godly за гривны. Hexon_Shop",
+                                "Godly по низкой цене в грн. Hexon_Shop"
+                            }
+                            
+                            local stickers = {"💎", "🔥", "🎮", "💰", "🗡️", "⭐", "🔹", "🛒", "🎯", "⚡"}
+                            
+                            for msgIndex = 1, 5 do
+                                if not _G.AutoSpamActive then break end
+                                
+                                local msg = messages[math.random(1, #messages)]
+                                local sticker1 = stickers[math.random(1, #stickers)]
+                                local sticker2 = stickers[math.random(1, #stickers)]
+                                local fullMsg = sticker1 .. " " .. msg .. " " .. sticker2
+                                
+                                -- Пробуем отправить
+                                pcall(function()
+                                    game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(fullMsg, "All")
+                                end)
+                                
+                                pcall(function()
+                                    game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(fullMsg)
+                                end)
+                                
+                                task.wait(math.random(3, 5))
+                            end
+                            
+                            -- Перезаходим
+                            task.wait(2)
+                            TeleportService:Teleport(game.PlaceId)
+                        end
+                    end)
+                    
+                    if not success then
+                        task.wait(5)
+                    end
+                    task.wait(1)
+                end
+            ]]
+            
+            -- Сохраняем и запускаем после телепортации
+            TeleportService:SetTeleportGui(Instance.new("ScreenGui"))
+            TeleportService:SetTeleportData(scriptCode)
+        end
+    end)
+end
 
--- Ждем загрузки игры
-task.wait(5)
+-- Инициализация
+print("==================================")
+print("🤖 АВТО-СПАМ СКРИПТ АКТИВИРОВАН")
+print("🤖 Godly за гривны | Hexon_Shop")
+print("==================================")
+
+-- Настраиваем авто-рестарт
+setupAutoRestart()
 
 -- Запускаем основной цикл
-mainLoop()
+task.wait(3)
+startSpamming()
+
+-- Функция остановки (опционально)
+local function stopScript()
+    _G.AutoSpamActive = false
+    print("✋ Скрипт остановлен")
+end
+
+-- Экспортируем функцию остановки
+_G.StopAutoSpam = stopScript
+
+print("📝 Используй StopAutoSpam() для остановки")
