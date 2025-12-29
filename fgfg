@@ -1,5 +1,5 @@
 -- Delta авто-спам скрипт для MM2 с улучшенным Server Hop
--- Модифицировано: Server Hop теперь использует API для перехода на другой сервер, чтобы избежать возврата на тот же
+-- Модифицировано: Server Hop использует API + GitHub авто-загрузка
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
@@ -53,12 +53,12 @@ end
 local function serverHop()
     print("🔄 Выполняю улучшенный Server Hop...")
    
-    -- Используем queue_on_teleport для авто-запуска после перехода
+    -- Используем queue_on_teleport для авто-запуска после перехода (сам себя!)
     if queue_on_teleport then
         queue_on_teleport([[
             getgenv().AutoStartSpam = true
             task.wait(5)
-            loadstring(game:HttpGet("https://pastebin.com/raw/YOUR_SCRIPT_CODE"))()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/scriptixrbx/efeded/refs/heads/main/fgfg"))()
         ]])
     end
    
@@ -90,134 +90,98 @@ local function serverHop()
             cursor = data.nextPageCursor
             if not cursor then break end
         else
-            print("⚠️ Ошибка при получении списка серверов: " .. response)
+            print("⚠️ Ошибка при получении списка серверов")
             task.wait(2)
         end
     end
    
     if #servers > 0 then
-        -- Выбираем случайный сервер
+        -- Выбираем случайный сервер (НЕ текущий!)
         local targetServer = servers[math.random(1, #servers)]
-        print("🎯 Найден сервер: " .. targetServer)
+        print("🎯 Переход на сервер: " .. string.sub(targetServer, 1, 15) .. "...")
        
         local success = pcall(function()
             TeleportService:TeleportToPlaceInstance(placeId, targetServer)
         end)
        
         if not success then
-            print("⚠️ Ошибка телепорта, пробую запасной вариант...")
+            print("⚠️ TeleportToPlaceInstance failed, fallback...")
             TeleportService:Teleport(placeId)
         end
-       
-        return true
     else
-        print("⚠️ Нет доступных серверов, использую стандартный телепорт...")
-        pcall(function()
-            TeleportService:Teleport(placeId)
-        end)
-        return true
+        print("⚠️ Нет серверов, стандартный хоп...")
+        TeleportService:Teleport(placeId)
     end
+   
+    return true
 end
 
 -- Основной цикл
 local function mainLoop()
-    print("🤖 Авто-спам запущен!")
-    print("🔄 Режим: 5 сообщений → Server Hop")
+    print("🤖 Авто-спам запущен! 🚀")
+    print("🔄 5 сообщений → Server Hop → Повтор")
    
     local cycleCount = 0
    
     while getgenv().AutoSpamEnabled do
         cycleCount += 1
-        print("\n=== Цикл " .. cycleCount .. " ===")
+        print("\n=== Цикл #" .. cycleCount .. " ===")
        
-        -- Ждем загрузки чата
+        -- Ждем чат
         for i = 1, 10 do
             local chatLoaded = pcall(function()
                 return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") ~= nil
             end)
-           
             if chatLoaded then
-                print("✅ Чат загружен")
+                print("✅ Чат готов")
                 break
             end
-           
             if i == 10 then
-                print("⚠️ Чат не загрузился, пробую Server Hop")
+                print("⚠️ Чат не загрузился → Hop")
                 serverHop()
                 task.wait(10)
                 continue
             end
-           
             task.wait(1)
         end
        
-        -- Отправляем 5 сообщений
+        -- Спам 5 сообщений
         local shuffled = shuffle(messages)
-       
         for i = 1, 5 do
             if not getgenv().AutoSpamEnabled then break end
-           
             sendMessage(shuffled[i])
-            print("📢 [" .. i .. "/5] " .. string.sub(shuffled[i], 1, 20) .. "...")
-           
-            if i < 5 then
-                task.wait(math.random(3, 4)) -- Задержка 3-4 секунды
-            end
+            print("📢 [" .. i .. "/5] " .. string.sub(shuffled[i], 1, 25) .. "...")
+            if i < 5 then task.wait(math.random(3, 4)) end
         end
        
-        -- Server Hop после 5 сообщений
+        -- Hop
         if getgenv().AutoSpamEnabled then
-            print("🔄 Отправка завершена, делаю Server Hop...")
-            task.wait(1) -- Короткая пауза
-           
-            -- Вызываем Server Hop
-            local hopSuccess = serverHop()
-           
-            if hopSuccess then
-                print("✅ Server Hop выполнен, жду перехода...")
-                -- Ждем телепортацию
-                for i = 1, 15 do
-                    if not getgenv().AutoSpamEnabled then break end
-                    task.wait(1)
-                end
+            print("🔄 5/5 → Server Hop...")
+            task.wait(1)
+            serverHop()
+            print("✅ Hop отправлен, жду...")
+            for i = 1, 15 do
+                if not getgenv().AutoSpamEnabled then break end
+                task.wait(1)
             end
         end
     end
-   
-    print("⏹️ Авто-спам остановлен")
-end
-
--- Авто-запуск с проверкой на первоначальный запуск
-print("========================================")
-print("🤖 MM2 AUTO-SPAM WITH IMPROVED SERVER HOP")
-print("📢 Автоматический режим")
-print("📢 Server Hop при запуске → 5 сообщений → Server Hop → Повтор")
-print("========================================")
-
--- Запускаем через 3 секунды
-task.wait(3)
-
-if getgenv().AutoStartSpam == true then
-    -- Если флаг установлен (после хопа), запускаем спам
-    local success, err = pcall(function()
-        mainLoop()
-    end)
-    if not success then
-        print("⚠️ Ошибка в основном цикле: " .. err)
-        print("🔄 Пробую перезапустить...")
-        task.wait(5)
-        mainLoop()
-    end
-else
-    -- Если первый запуск, сразу делаем Server Hop
-    serverHop()
-end
-
--- Функция остановки
-getgenv().StopSpam = function()
-    getgenv().AutoSpamEnabled = false
     print("⏹️ Спам остановлен")
 end
 
-print("✅ Скрипт работает")
-print("ℹ️ StopSpam() - остановить")
+print("========================================")
+print("🤖 MM2 DELTA AUTO-SPAM + SERVER HOP")
+print("📢 Полностью автономно via GitHub")
+print("🚀 Запуск: loadstring(game:HttpGet('твой_URL'))()")
+print("========================================")
+
+task.wait(3)
+
+if getgenv().AutoStartSpam then
+    pcall(mainLoop)
+else
+    serverHop()  -- Первый хоп сразу
+end
+
+getgenv().StopSpam = function() getgenv().AutoSpamEnabled = false print("⏹️ Stop") end
+print("✅ Готово! StopSpam() для остановки")
