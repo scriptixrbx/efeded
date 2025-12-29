@@ -1,5 +1,5 @@
--- Delta авто-спам скрипт для MM2 с улучшенным Server Hop
--- Модифицировано: Server Hop использует API + GitHub авто-загрузка
+-- Delta авто-спам скрипт для MM2 с улучшенным Server Hop (избегание повторных серверов)
+-- Модифицировано: Использует продвинутый hop с сохранением посещенных серверов в файл
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
@@ -49,11 +49,11 @@ local function sendMessage(text)
     end)
 end
 
--- Улучшенный Server Hop с использованием API для выбора другого сервера
+-- Продвинутый Server Hop с избеганием повторных серверов (как в популярных скриптах Delta)
 local function serverHop()
-    print("🔄 Выполняю улучшенный Server Hop...")
+    print("🔄 Выполняю продвинутый Server Hop (избегание повторных)...")
    
-    -- Используем queue_on_teleport для авто-запуска после перехода (сам себя!)
+    -- queue_on_teleport для авто-запуска
     if queue_on_teleport then
         queue_on_teleport([[
             getgenv().AutoStartSpam = true
@@ -62,55 +62,73 @@ local function serverHop()
         ]])
     end
    
-    local currentJobId = game.JobId
-    local servers = {}
-    local cursor = nil
-    local attempts = 0
-    local maxAttempts = 5
+    local AllIDs = {}
+    local foundAnything = ""
+    local actualHour = os.time() / 3600
+    local Deleted = false
    
-    -- Собираем список серверов
-    while attempts < maxAttempts do
-        attempts += 1
-        local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-        if cursor then
-            url = url .. "&cursor=" .. cursor
-        end
-       
-        local success, response = pcall(function()
-            return HttpService:GetAsync(url)
-        end)
-       
-        if success then
-            local data = HttpService:JSONDecode(response)
-            for _, server in ipairs(data.data) do
-                if server.playing < server.maxPlayers and server.id ~= currentJobId then
-                    table.insert(servers, server.id)
-                end
-            end
-            cursor = data.nextPageCursor
-            if not cursor then break end
-        else
-            print("⚠️ Ошибка при получении списка серверов")
-            task.wait(2)
-        end
+    local File = pcall(function()
+        AllIDs = HttpService:JSONDecode(readfile("NotSameServers.json"))
+    end)
+   
+    if not File then
+        table.insert(AllIDs, actualHour)
+        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
     end
    
-    if #servers > 0 then
-        -- Выбираем случайный сервер (НЕ текущий!)
-        local targetServer = servers[math.random(1, #servers)]
-        print("🎯 Переход на сервер: " .. string.sub(targetServer, 1, 15) .. "...")
-       
-        local success = pcall(function()
-            TeleportService:TeleportToPlaceInstance(placeId, targetServer)
-        end)
-       
-        if not success then
-            print("⚠️ TeleportToPlaceInstance failed, fallback...")
-            TeleportService:Teleport(placeId)
+    local function TPReturner()
+        local Site
+        if foundAnything == "" then
+            Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100'))
+        else
+            Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100&cursor=' .. foundAnything))
         end
-    else
-        print("⚠️ Нет серверов, стандартный хоп...")
-        TeleportService:Teleport(placeId)
+        local ID = ""
+        if Site.nextPageCursor and Site.nextPageCursor ~= "null" and Site.nextPageCursor ~= nil then
+            foundAnything = Site.nextPageCursor
+        end
+        local num = 0
+        for i, v in pairs(Site.data) do
+            local Possible = true
+            ID = tostring(v.id)
+            if tonumber(v.maxPlayers) > tonumber(v.playing) and v.id ~= game.JobId then  -- Добавлено избегание текущего
+                for _, Existing in pairs(AllIDs) do
+                    if num ~= 0 then
+                        if ID == tostring(Existing) then
+                            Possible = false
+                        end
+                    else
+                        if tonumber(actualHour) ~= tonumber(Existing) then
+                            local delFile = pcall(function()
+                                delfile("NotSameServers.json")
+                                AllIDs = {}
+                                table.insert(AllIDs, actualHour)
+                            end)
+                        end
+                    end
+                    num = num + 1
+                end
+                if Possible == true then
+                    table.insert(AllIDs, ID)
+                    task.wait()
+                    pcall(function()
+                        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+                        TeleportService:TeleportToPlaceInstance(placeId, ID, Players.LocalPlayer)
+                    end)
+                    task.wait(4)
+                    return true  -- Успешный хоп
+                end
+            end
+        end
+        return false
+    end
+   
+    while true do
+        local success = TPReturner()
+        if success or foundAnything == "" then
+            break
+        end
+        task.wait(0.5)
     end
    
     return true
@@ -170,9 +188,9 @@ local function mainLoop()
 end
 
 print("========================================")
-print("🤖 MM2 DELTA AUTO-SPAM + SERVER HOP")
-print("📢 Полностью автономно via GitHub")
-print("🚀 Запуск: loadstring(game:HttpGet('твой_URL'))()")
+print("🤖 MM2 DELTA AUTO-SPAM + ADVANCED SERVER HOP")
+print("📢 Автономно, избегает повторных серверов")
+print("🚀 Запуск: loadstring(game:HttpGet('твой_GitHub_URL'))()")
 print("========================================")
 
 task.wait(3)
