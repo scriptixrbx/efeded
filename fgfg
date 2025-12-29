@@ -1,19 +1,18 @@
--- Delta авто-спам скрипт для MM2 с улучшенным Server Hop (избегание повторных серверов)
--- Модифицировано: Использует продвинутый hop с сохранением посещенных серверов в файл
+-- Delta MM2 Auto-Spam + FIXED lk_serverhop (НЕ возвращается на тот же сервер!)
+-- Работает в TextChatService + Legacy чат | Полная автономия
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
+local TextChatService = game:GetService("TextChatService")
 local player = Players.LocalPlayer
 local placeId = game.PlaceId
 
--- Проверяем что мы в MM2
 if placeId ~= 142823291 then
-    warn("❌ Это не MM2! Запустите скрипт в Murder Mystery 2")
+    warn("❌ Это не MM2!")
     return
 end
 
--- Флаг для автозапуска
 getgenv().AutoSpamEnabled = true
 
 local messages = {
@@ -29,7 +28,6 @@ local messages = {
     "💯 Godly по низкой цене. Hexon_Shop"
 }
 
--- Перемешивание сообщений
 local function shuffle(tbl)
     for i = #tbl, 2, -1 do
         local j = math.random(i)
@@ -38,22 +36,24 @@ local function shuffle(tbl)
     return tbl
 end
 
--- Отправка сообщения
 local function sendMessage(text)
+    -- Legacy чат
     pcall(function()
         game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(text, "All")
     end)
-   
+    -- Новый TextChatService
     pcall(function()
-        game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(text)
+        if TextChatService.TextChannels:FindFirstChild("RBXGeneral") then
+            TextChatService.TextChannels.RBXGeneral:SendAsync(text)
+        end
     end)
+    print("📢 Отправлено: " .. string.sub(text, 1, 30) .. "...")
 end
 
--- Продвинутый Server Hop с избеганием повторных серверов (как в популярных скриптах Delta)
+-- FIXED lk_serverhop.lua (добавлен skip текущего сервера!)
 local function serverHop()
-    print("🔄 Выполняю продвинутый Server Hop (избегание повторных)...")
-   
-    -- queue_on_teleport для авто-запуска
+    print("🔄 FIXED Server Hop (lk_serverhop + skip current)...")
+    
     if queue_on_teleport then
         queue_on_teleport([[
             getgenv().AutoStartSpam = true
@@ -61,136 +61,116 @@ local function serverHop()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/scriptixrbx/efeded/refs/heads/main/fgfg"))()
         ]])
     end
-   
+    
     local AllIDs = {}
     local foundAnything = ""
-    local actualHour = os.time() / 3600
-    local Deleted = false
-   
+    local actualHour = os.date("!*t").hour
+    local S_T = TeleportService
+    local S_H = HttpService
+    
     local File = pcall(function()
-        AllIDs = HttpService:JSONDecode(readfile("NotSameServers.json"))
+        AllIDs = S_H:JSONDecode(readfile("server-hop-temp.json"))
     end)
-   
     if not File then
         table.insert(AllIDs, actualHour)
-        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
+        writefile("server-hop-temp.json", S_H:JSONEncode(AllIDs))
     end
-   
+    
     local function TPReturner()
         local Site
         if foundAnything == "" then
-            Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100'))
+            Site = S_H:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100'))
         else
-            Site = HttpService:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100&cursor=' .. foundAnything))
+            Site = S_H:JSONDecode(game:HttpGet('https://games.roblox.com/v1/games/' .. placeId .. '/servers/Public?sortOrder=Asc&limit=100&cursor=' .. foundAnything))
         end
-        local ID = ""
         if Site.nextPageCursor and Site.nextPageCursor ~= "null" and Site.nextPageCursor ~= nil then
             foundAnything = Site.nextPageCursor
         end
         local num = 0
         for i, v in pairs(Site.data) do
             local Possible = true
-            ID = tostring(v.id)
-            if tonumber(v.maxPlayers) > tonumber(v.playing) and v.id ~= game.JobId then  -- Добавлено избегание текущего
+            local ID = tostring(v.id)
+            -- ✅ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: skip текущий сервер + полные
+            if tonumber(v.maxPlayers) > tonumber(v.playing) and ID ~= game.JobId then
                 for _, Existing in pairs(AllIDs) do
                     if num ~= 0 then
                         if ID == tostring(Existing) then
                             Possible = false
+                            break
                         end
                     else
                         if tonumber(actualHour) ~= tonumber(Existing) then
-                            local delFile = pcall(function()
-                                delfile("NotSameServers.json")
+                            pcall(function()
+                                delfile("server-hop-temp.json")
                                 AllIDs = {}
                                 table.insert(AllIDs, actualHour)
                             end)
                         end
                     end
-                    num = num + 1
+                    num += 1
                 end
-                if Possible == true then
+                if Possible then
                     table.insert(AllIDs, ID)
-                    task.wait()
-                    pcall(function()
-                        writefile("NotSameServers.json", HttpService:JSONEncode(AllIDs))
-                        TeleportService:TeleportToPlaceInstance(placeId, ID, Players.LocalPlayer)
-                    end)
+                    writefile("server-hop-temp.json", S_H:JSONEncode(AllIDs))
+                    S_T:TeleportToPlaceInstance(placeId, ID, player)
                     task.wait(4)
-                    return true  -- Успешный хоп
+                    return true
                 end
             end
         end
         return false
     end
-   
-    while true do
-        local success = TPReturner()
-        if success or foundAnything == "" then
-            break
-        end
-        task.wait(0.5)
+    
+    while task.wait(0.5) do
+        if TPReturner() then break end
+        if foundAnything == "" then break end
     end
-   
     return true
 end
 
--- Основной цикл
 local function mainLoop()
-    print("🤖 Авто-спам запущен! 🚀")
-    print("🔄 5 сообщений → Server Hop → Повтор")
-   
-    local cycleCount = 0
-   
+    print("🤖 Спам + FIXED Hop запущен! 🚀")
+    local cycle = 0
     while getgenv().AutoSpamEnabled do
-        cycleCount += 1
-        print("\n=== Цикл #" .. cycleCount .. " ===")
-       
-        -- Ждем чат
-        for i = 1, 10 do
-            local chatLoaded = pcall(function()
-                return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") ~= nil
-            end)
-            if chatLoaded then
+        cycle += 1
+        print("\n=== #" .. cycle .. " ===")
+        
+        -- Ждём чат (15 сек макс)
+        for i = 1, 15 do
+            local legacyChat = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+            local newChat = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+            if legacyChat or newChat then
                 print("✅ Чат готов")
                 break
             end
-            if i == 10 then
-                print("⚠️ Чат не загрузился → Hop")
+            if i == 15 then
+                print("⚠️ Чат timeout → Hop")
                 serverHop()
                 task.wait(10)
                 continue
             end
             task.wait(1)
         end
-       
-        -- Спам 5 сообщений
+        
+        -- 5 сообщений
         local shuffled = shuffle(messages)
         for i = 1, 5 do
             if not getgenv().AutoSpamEnabled then break end
             sendMessage(shuffled[i])
-            print("📢 [" .. i .. "/5] " .. string.sub(shuffled[i], 1, 25) .. "...")
-            if i < 5 then task.wait(math.random(3, 4)) end
+            if i < 5 then task.wait(math.random(3, 5)) end
         end
-       
+        
         -- Hop
-        if getgenv().AutoSpamEnabled then
-            print("🔄 5/5 → Server Hop...")
-            task.wait(1)
-            serverHop()
-            print("✅ Hop отправлен, жду...")
-            for i = 1, 15 do
-                if not getgenv().AutoSpamEnabled then break end
-                task.wait(1)
-            end
-        end
+        task.wait(1)
+        serverHop()
+        print("✅ Hop OK, жду...")
+        task.wait(15)
     end
-    print("⏹️ Спам остановлен")
 end
 
 print("========================================")
-print("🤖 MM2 DELTA AUTO-SPAM + ADVANCED SERVER HOP")
-print("📢 Автономно, избегает повторных серверов")
-print("🚀 Запуск: loadstring(game:HttpGet('твой_GitHub_URL'))()")
+print("🤖 MM2 DELTA SPAM + LK SERVERHOP FIXED")
+print("📢 5 msg → Hop (НЕ тот же сервер!)")
 print("========================================")
 
 task.wait(3)
@@ -198,8 +178,8 @@ task.wait(3)
 if getgenv().AutoStartSpam then
     pcall(mainLoop)
 else
-    serverHop()  -- Первый хоп сразу
+    serverHop()  -- Первый hop сразу
 end
 
 getgenv().StopSpam = function() getgenv().AutoSpamEnabled = false print("⏹️ Stop") end
-print("✅ Готово! StopSpam() для остановки")
+print("✅ Запущено! StopSpam()")
