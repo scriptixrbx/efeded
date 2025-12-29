@@ -1,7 +1,1 @@
--- Ультра-короткая версия
-while true do
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/scriptixrbx/time6/refs/heads/main/ded"))()
-    task.wait(6)
-    loadstring(game:HttpGet("https://raw.githubusercontent.com/MapperZ1/Server-hop/refs/heads/main/serverhop.lua"))()
-    task.wait(6)
-end
+loadstring(game:HttpGet("https://raw.githubusercontent.com/scriptixrbx/time6/refs/heads/main/ded"))()
