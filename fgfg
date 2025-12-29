@@ -1,7 +1,6 @@
 -- Delta авто-спам скрипт для MM2 с Server Hop
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local placeId = game.PlaceId
 
@@ -11,7 +10,7 @@ if placeId ~= 142823291 then
     return
 end
 
--- Флаг для автозапуска в Delta
+-- Флаг для автозапуска
 getgenv().AutoSpamEnabled = true
 
 local messages = {
@@ -27,158 +26,149 @@ local messages = {
     "💯 Godly по низкой цене. Hexon_Shop"
 }
 
--- Функция для перемешивания
+-- Перемешивание сообщений
 local function shuffle(tbl)
-    local copy = {}
-    for i, v in ipairs(tbl) do
-        copy[i] = v
-    end
-    for i = #copy, 2, -1 do
+    for i = #tbl, 2, -1 do
         local j = math.random(i)
-        copy[i], copy[j] = copy[j], copy[i]
+        tbl[i], tbl[j] = tbl[j], tbl[i]
     end
-    return copy
+    return tbl
 end
 
 -- Отправка сообщения
 local function sendMessage(text)
-    -- Пробуем старый чат
-    local success1 = pcall(function()
+    pcall(function()
         game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(text, "All")
     end)
     
-    -- Пробуем новый чат
-    local success2 = pcall(function()
+    pcall(function()
         game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(text)
     end)
-    
-    return success1 or success2
 end
 
--- Простая функция Server Hop
+-- Простой Server Hop через queue_on_teleport
 local function serverHop()
-    -- Пытаемся получить список серверов
-    local servers = {}
+    print("🔄 Выполняю Server Hop...")
     
-    local success, result = pcall(function()
-        local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=25"
-        local response = game:HttpGetAsync(url)
-        local data = HttpService:JSONDecode(response)
-        return data
-    end)
-    
-    if success and result and result.data then
-        for _, server in ipairs(result.data) do
-            if server.id ~= game.JobId and server.playing < (server.maxPlayers or 12) then
-                table.insert(servers, server.id)
-            end
-        end
+    -- Используем queue_on_teleport для авто-запуска после перехода
+    if queue_on_teleport then
+        queue_on_teleport([[
+            task.wait(5)
+            loadstring(game:HttpGet("https://pastebin.com/raw/YOUR_SCRIPT_CODE"))()
+        ]])
     end
     
-    if #servers > 0 then
-        -- Выбираем случайный сервер
-        local targetServer = servers[math.random(1, #servers)]
-        
-        local hopSuccess = pcall(function()
-            TeleportService:TeleportToPlaceInstance(placeId, targetServer, player)
-        end)
-        
-        if hopSuccess then
-            return true
-        end
-    end
-    
-    -- Если не получилось, обычный телепорт
-    pcall(function()
+    -- Просто телепортируемся на случайный сервер
+    local success = pcall(function()
+        -- Вариант 1: Прямой телепорт (самый надежный)
         TeleportService:Teleport(placeId)
     end)
     
-    return false
+    if not success then
+        pcall(function()
+            -- Вариант 2: Через синглтон
+            game:GetService("TeleportService"):Teleport(placeId)
+        end)
+    end
+    
+    return true
 end
 
--- Основная функция
+-- Основной цикл
 local function mainLoop()
-    print("🤖 Авто-спам запущен! Server Hop активен.")
+    print("🤖 Авто-спам запущен!")
+    print("🔄 Режим: 5 сообщений → Server Hop")
+    
+    local cycleCount = 0
     
     while getgenv().AutoSpamEnabled do
-        -- Ждем загрузки
-        task.wait(5)
+        cycleCount += 1
+        print("\n=== Цикл " .. cycleCount .. " ===")
         
-        -- Проверяем чат
-        local chatReady = false
-        for i = 1, 5 do
-            local oldChat = pcall(function() 
-                return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") 
+        -- Ждем загрузки чата
+        for i = 1, 10 do
+            local chatLoaded = pcall(function()
+                return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") ~= nil
             end)
             
-            if oldChat then
-                chatReady = true
+            if chatLoaded then
+                print("✅ Чат загружен")
                 break
             end
+            
+            if i == 10 then
+                print("⚠️ Чат не загрузился, пробую Server Hop")
+                serverHop()
+                task.wait(10)
+                continue
+            end
+            
             task.wait(1)
         end
         
-        if chatReady then
-            -- Отправляем 5 сообщений
-            local shuffled = shuffle(messages)
+        -- Отправляем 5 сообщений
+        local shuffled = shuffle(messages)
+        
+        for i = 1, 5 do
+            if not getgenv().AutoSpamEnabled then break end
             
-            for i = 1, 5 do
-                if not getgenv().AutoSpamEnabled then break end
-                
-                sendMessage(shuffled[i])
-                print("📢 Сообщение " .. i .. "/5 отправлено")
-                
-                if i < 5 then
-                    task.wait(math.random(2, 3))
-                end
+            sendMessage(shuffled[i])
+            print("📢 [" .. i .. "/5] " .. string.sub(shuffled[i], 1, 20) .. "...")
+            
+            if i < 5 then
+                task.wait(math.random(3, 4)) -- Задержка 3-4 секунды
             end
-            
-            -- Server Hop после 5 сообщений
-            if getgenv().AutoSpamEnabled then
-                print("🔄 Делаю Server Hop...")
-                task.wait(1)
-                serverHop()
-            end
-            
-        else
-            -- Если чат не загрузился, пробуем перезайти
-            print("⚠️ Чат недоступен, делаю Server Hop...")
-            task.wait(2)
-            serverHop()
         end
         
-        -- Задержка перед следующей итерацией
-        task.wait(8)
+        -- Server Hop после 5 сообщений
+        if getgenv().AutoSpamEnabled then
+            print("🔄 Отправка завершена, делаю Server Hop...")
+            task.wait(1) -- Короткая пауза
+            
+            -- Вызываем Server Hop
+            local hopSuccess = serverHop()
+            
+            if hopSuccess then
+                print("✅ Server Hop выполнен, жду перехода...")
+                -- Ждем телепортацию
+                for i = 1, 15 do
+                    if not getgenv().AutoSpamEnabled then break end
+                    task.wait(1)
+                end
+            end
+        end
     end
+    
+    print("⏹️ Авто-спам остановлен")
 end
 
--- Авто-запуск сразу без GUI
+-- Авто-запуск
 print("========================================")
-print("🤖 MM2 AUTO-SPAM - АВТОМАТИЧЕСКИЙ РЕЖИМ")
-print("📢 Авто-реклама Godly | Hexon_Shop")
-print("📢 5 сообщений -> Server Hop -> Повтор")
+print("🤖 MM2 AUTO-SPAM WITH SERVER HOP")
+print("📢 Автоматический режим")
+print("📢 5 сообщений → Server Hop → Повтор")
 print("========================================")
 
--- Ждем немного и запускаем
+-- Запускаем через 3 секунды
 task.wait(3)
 
--- Запускаем в отдельном потоке
-coroutine.wrap(mainLoop)()
-
-print("✅ Скрипт запущен автоматически!")
-print("ℹ️ Работает в фоновом режиме")
-
--- Функция для остановки
-getgenv().StopSpam = function()
-    getgenv().AutoSpamEnabled = false
-    print("⏹️ Спам остановлен вручную")
-end
-
--- Авто-остановка при выходе из игры
-game:GetService("Players").PlayerRemoving:Connect(function(leavingPlayer)
-    if leavingPlayer == player then
-        getgenv().AutoSpamEnabled = false
-    end
+-- Запускаем основной цикл в отдельном потоке
+local success, err = pcall(function()
+    mainLoop()
 end)
 
-print("ℹ️ Для остановки введите: StopSpam()")
+if not success then
+    print("⚠️ Ошибка в основном цикле: " .. err)
+    print("🔄 Пробую перезапустить...")
+    task.wait(5)
+    mainLoop()
+end
+
+-- Функция остановки
+getgenv().StopSpam = function()
+    getgenv().AutoSpamEnabled = false
+    print("⏹️ Спам остановлен")
+end
+
+print("✅ Скрипт работает")
+print("ℹ️ StopSpam() - остановить")
