@@ -29,19 +29,25 @@ local messages = {
 
 -- Функция для перемешивания
 local function shuffle(tbl)
-    for i = #tbl, 2, -1 do
-        local j = math.random(i)
-        tbl[i], tbl[j] = tbl[j], tbl[i]
+    local copy = {}
+    for i, v in ipairs(tbl) do
+        copy[i] = v
     end
-    return tbl
+    for i = #copy, 2, -1 do
+        local j = math.random(i)
+        copy[i], copy[j] = copy[j], copy[i]
+    end
+    return copy
 end
 
 -- Отправка сообщения
 local function sendMessage(text)
+    -- Пробуем старый чат
     local success1 = pcall(function()
         game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(text, "All")
     end)
     
+    -- Пробуем новый чат
     local success2 = pcall(function()
         game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(text)
     end)
@@ -49,73 +55,44 @@ local function sendMessage(text)
     return success1 or success2
 end
 
--- Функция для получения списка серверов (Server Hop)
+-- Функция для получения списка серверов (Server Hop) - УПРОЩЕННАЯ
 local function getServers()
     local servers = {}
-    local cursor = ""
     
-    for _ = 1, 3 do -- Получаем несколько страниц
-        local url = string.format(
-            "https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100%s",
-            placeId,
-            cursor ~= "" and "&cursor=" .. cursor or ""
-        )
-        
-        local success, response = pcall(function()
-            return game:HttpGetAsync(url)
-        end)
-        
-        if success then
-            local data = HttpService:JSONDecode(response)
-            
-            if data and data.data then
-                for _, server in ipairs(data.data) do
-                    -- Исключаем текущий сервер и слишком заполненные
-                    if server.id ~= game.JobId and server.playing < server.maxPlayers - 2 then
-                        table.insert(servers, {
-                            id = server.id,
-                            players = server.playing,
-                            max = server.maxPlayers
-                        })
-                    end
-                end
-                
-                cursor = data.nextPageCursor
-                if not cursor or cursor == "" then
-                    break
-                end
+    -- Пробуем получить серверы
+    local success, result = pcall(function()
+        local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=25", placeId)
+        local response = game:HttpGet(url, true)
+        return HttpService:JSONDecode(response)
+    end)
+    
+    if success and result and result.data then
+        for _, server in ipairs(result.data) do
+            -- Исключаем текущий сервер и слишком заполненные
+            if server.id ~= game.JobId and server.playing < (server.maxPlayers or 12) - 2 then
+                table.insert(servers, server.id)
             end
-        else
-            break
         end
     end
-    
-    -- Сортируем по количеству игроков (меньше игроков = лучше)
-    table.sort(servers, function(a, b)
-        return a.players < b.players
-    end)
     
     return servers
 end
 
--- Функция Server Hop (переход на другой сервер)
+-- Простая функция Server Hop
 local function serverHop()
     print("🔄 Поиск нового сервера...")
     
     local servers = getServers()
     
     if #servers > 0 then
-        -- Выбираем сервер с наименьшим количеством игроков
-        local bestServer = servers[1]
+        -- Выбираем случайный сервер
+        local targetServer = servers[math.random(1, #servers)]
         
-        print(string.format("🎯 Найден сервер: %s (игроков: %d/%d)", 
-            string.sub(bestServer.id, 1, 8) .. "...", 
-            bestServer.players, 
-            bestServer.max))
+        print("🎯 Переход на новый сервер...")
         
         -- Пытаемся перейти на найденный сервер
         local success, errorMsg = pcall(function()
-            TeleportService:TeleportToPlaceInstance(placeId, bestServer.id, player)
+            TeleportService:TeleportToPlaceInstance(placeId, targetServer, player)
         end)
         
         if success then
@@ -124,8 +101,6 @@ local function serverHop()
         else
             print("⚠️ Ошибка перехода: " .. tostring(errorMsg))
         end
-    else
-        print("⚠️ Не найдено подходящих серверов")
     end
     
     -- Если не удалось, пробуем обычный Teleport
@@ -137,203 +112,87 @@ local function serverHop()
     return success2
 end
 
--- Ожидание загрузки игры после телепортации
-local function waitForGameLoad()
-    local maxWait = 15
-    local waited = 0
-    
-    print("⏳ Ожидание загрузки игры...")
-    
-    while waited < maxWait do
-        if game:IsLoaded() and player.Character then
-            print("✅ Игра загружена")
-            return true
-        end
-        waited = waited + 1
-        task.wait(1)
-    end
-    
-    print("⚠️ Таймаут загрузки игры")
-    return false
-end
-
--- Основная функция
+-- Основная функция - ПРОСТАЯ И НАДЕЖНАЯ
 local function startAutoSpam()
-    print("🤖 Delta авто-спам с Server Hop активирован!")
-    print("📢 Сообщения: Godly за гривны | Hexon_Shop")
+    print("🤖 Авто-спам активирован!")
     
     while getgenv().AutoSpamEnabled do
-        -- Ждем полной загрузки игры
-        if not waitForGameLoad() then
-            task.wait(5)
-            continue
-        end
+        -- Ждем немного после загрузки
+        task.wait(5)
         
         -- Ждем загрузки чата
         local chatLoaded = false
-        for i = 1, 8 do
-            if pcall(function() 
+        for i = 1, 5 do
+            local oldChat = pcall(function() 
                 return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") 
-            end) then
+            end)
+            
+            local newChat = pcall(function()
+                return game:GetService("TextChatService"):FindFirstChild("TextChannels")
+            end)
+            
+            if oldChat or newChat then
                 chatLoaded = true
                 break
             end
             task.wait(1)
         end
         
-        if not chatLoaded then
-            print("⚠️ Чат не загрузился, пробую Server Hop...")
-            serverHop()
-            task.wait(10)
-            continue
-        end
-        
-        print("✅ Чат готов, начинаю отправку...")
-        
-        -- Отправляем 5 сообщений
-        local shuffled = shuffle(messages)
-        local sentCount = 0
-        
-        for i = 1, 5 do
-            if not getgenv().AutoSpamEnabled then break end
+        if chatLoaded then
+            print("✅ Чат готов, начинаю отправку...")
             
-            local sent = sendMessage(shuffled[i])
-            if sent then
-                sentCount = sentCount + 1
-                print(string.format("✅ [%d/5] Отправлено", sentCount))
-            else
-                print("⚠️ Не удалось отправить сообщение")
+            -- Отправляем 5 сообщений
+            local shuffled = shuffle(messages)
+            
+            for i = 1, 5 do
+                if not getgenv().AutoSpamEnabled then break end
+                
+                sendMessage(shuffled[i])
+                print("📢 Сообщение " .. i .. "/5 отправлено")
+                
+                if i < 5 then
+                    task.wait(math.random(2, 3)) -- Задержка между сообщениями
+                end
             end
             
-            if i < 5 then -- Не ждем после последнего сообщения
-                task.wait(math.random(3, 4))
-            end
-        end
-        
-        -- Server Hop после сообщений
-        if getgenv().AutoSpamEnabled and sentCount > 0 then
-            print("🔄 Server Hop после " .. sentCount .. " сообщений...")
-            task.wait(2) -- Короткая пауза
-            
-            local hopSuccess = serverHop()
-            
-            if hopSuccess then
-                -- Ждем телепортацию
-                task.wait(8)
-            else
-                -- Если не удалось, ждем и пробуем снова
-                task.wait(10)
-            end
-        else
-            -- Если не отправили ни одного сообщения, ждем и пробуем Server Hop
-            task.wait(5)
+            -- Server Hop после 5 сообщений
             if getgenv().AutoSpamEnabled then
+                print("🔄 Server Hop после 5 сообщений...")
+                task.wait(1) -- Короткая пауза
                 serverHop()
-                task.wait(8)
             end
+            
+        else
+            print("⚠️ Чат не загрузился, пробую Server Hop...")
+            task.wait(2)
+            serverHop()
         end
+        
+        -- Ждем перед повторной попыткой если что-то пошло не так
+        task.wait(10)
     end
     
     print("⏹️ Авто-спам остановлен")
 end
 
--- Функция остановки
-local function stopAutoSpam()
+-- Авто-запуск сразу
+print("========================================")
+print("🤖 MM2 AUTO-SPAM СЕРВЕР ХОП")
+print("📢 Godly за гривны | Hexon_Shop")
+print("========================================")
+
+task.wait(2) -- Короткая задержка перед стартом
+
+-- Запускаем основной цикл
+coroutine.wrap(function()
+    startAutoSpam()
+end)()
+
+-- Функция остановки (можно вызвать из консоли)
+getgenv().StopSpam = function()
     getgenv().AutoSpamEnabled = false
-    print("⏹️ Авто-спам остановлен")
+    print("⏹️ Спам остановлен")
 end
 
--- UI для управления (опционально)
-local function createControlUI()
-    if not getgenv().CreatedUI then
-        getgenv().CreatedUI = true
-        
-        local ScreenGui = Instance.new("ScreenGui")
-        ScreenGui.Name = "DeltaSpamControl"
-        ScreenGui.Parent = game.CoreGui
-        
-        local Frame = Instance.new("Frame")
-        Frame.Size = UDim2.new(0, 220, 0, 140)
-        Frame.Position = UDim2.new(0, 10, 0, 10)
-        Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-        Frame.Parent = ScreenGui
-        
-        local Title = Instance.new("TextLabel")
-        Title.Size = UDim2.new(1, 0, 0, 30)
-        Title.Text = "DELTA MM2 SPAM"
-        Title.TextColor3 = Color3.fromRGB(0, 200, 255)
-        Title.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-        Title.Parent = Frame
-        
-        local Status = Instance.new("TextLabel")
-        Status.Size = UDim2.new(1, 0, 0, 25)
-        Status.Position = UDim2.new(0, 0, 0, 35)
-        Status.Text = "Status: READY"
-        Status.TextColor3 = Color3.fromRGB(0, 255, 0)
-        Status.Parent = Frame
-        
-        local StartBtn = Instance.new("TextButton")
-        StartBtn.Size = UDim2.new(0.9, 0, 0, 30)
-        StartBtn.Position = UDim2.new(0.05, 0, 0.45, 0)
-        StartBtn.Text = "▶️ START SPAM"
-        StartBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
-        StartBtn.Parent = Frame
-        
-        local StopBtn = Instance.new("TextButton")
-        StopBtn.Size = UDim2.new(0.9, 0, 0, 30)
-        StopBtn.Position = UDim2.new(0.05, 0, 0.75, 0)
-        StopBtn.Text = "⏹️ STOP"
-        StopBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
-        StopBtn.Parent = Frame
-        
-        StartBtn.MouseButton1Click:Connect(function()
-            if not getgenv().AutoSpamEnabled then
-                getgenv().AutoSpamEnabled = true
-                Status.Text = "Status: RUNNING"
-                Status.TextColor3 = Color3.fromRGB(255, 255, 0)
-                coroutine.wrap(startAutoSpam)()
-            end
-        end)
-        
-        StopBtn.MouseButton1Click:Connect(function()
-            stopAutoSpam()
-            Status.Text = "Status: STOPPED"
-            Status.TextColor3 = Color3.fromRGB(255, 0, 0)
-        end)
-        
-        print("🎮 Контрольная панель создана!")
-    end
-end
-
--- Авто-старт
-task.wait(3)
-createControlUI()
-
--- Экспортируем функции для ручного управления
-getgenv().StartSpam = function()
-    if not getgenv().AutoSpamEnabled then
-        getgenv().AutoSpamEnabled = true
-        print("🚀 Запуск спама...")
-        coroutine.wrap(startAutoSpam)()
-    else
-        print("⚠️ Спам уже запущен")
-    end
-end
-
-getgenv().StopSpam = stopAutoSpam
-getgenv().HopServer = serverHop -- Ручной Server Hop
-
-print("==========================================")
-print("🎯 DELTA MM2 AUTO-SPAM WITH SERVER HOP")
-print("🎯 Commands:")
-print("🎯   StartSpam() - запустить спам")
-print("🎯   StopSpam() - остановить спам")
-print("🎯   HopServer() - сменить сервер вручную")
-print("🎯   AutoSpamEnabled = false - остановить")
-print("==========================================")
-
--- Авто-запуск при загрузке (если нужно)
-if getgenv().AutoStartOnLoad then
-    task.wait(5)
-    getgenv().StartSpam()
-end
+print("✅ Скрипт запущен автоматически")
+print("ℹ️ Для остановки введите: StopSpam()")
