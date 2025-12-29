@@ -1,8 +1,9 @@
--- Delta авто-спам скрипт для MM2 с Server Hop
--- Модифицировано: Server Hop выполняется сразу при запуске скрипта
+-- Delta авто-спам скрипт для MM2 с улучшенным Server Hop
+-- Модифицировано: Server Hop теперь использует API для перехода на другой сервер, чтобы избежать возврата на тот же
 
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local placeId = game.PlaceId
 
@@ -48,9 +49,9 @@ local function sendMessage(text)
     end)
 end
 
--- Простой Server Hop через queue_on_teleport
+-- Улучшенный Server Hop с использованием API для выбора другого сервера
 local function serverHop()
-    print("🔄 Выполняю Server Hop...")
+    print("🔄 Выполняю улучшенный Server Hop...")
    
     -- Используем queue_on_teleport для авто-запуска после перехода
     if queue_on_teleport then
@@ -61,20 +62,61 @@ local function serverHop()
         ]])
     end
    
-    -- Просто телепортируемся на случайный сервер
-    local success = pcall(function()
-        -- Вариант 1: Прямой телепорт (самый надежный)
-        TeleportService:Teleport(placeId)
-    end)
+    local currentJobId = game.JobId
+    local servers = {}
+    local cursor = nil
+    local attempts = 0
+    local maxAttempts = 5
    
-    if not success then
-        pcall(function()
-            -- Вариант 2: Через синглтон
-            game:GetService("TeleportService"):Teleport(placeId)
+    -- Собираем список серверов
+    while attempts < maxAttempts do
+        attempts += 1
+        local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+        if cursor then
+            url = url .. "&cursor=" .. cursor
+        end
+       
+        local success, response = pcall(function()
+            return HttpService:GetAsync(url)
         end)
+       
+        if success then
+            local data = HttpService:JSONDecode(response)
+            for _, server in ipairs(data.data) do
+                if server.playing < server.maxPlayers and server.id ~= currentJobId then
+                    table.insert(servers, server.id)
+                end
+            end
+            cursor = data.nextPageCursor
+            if not cursor then break end
+        else
+            print("⚠️ Ошибка при получении списка серверов: " .. response)
+            task.wait(2)
+        end
     end
    
-    return true
+    if #servers > 0 then
+        -- Выбираем случайный сервер
+        local targetServer = servers[math.random(1, #servers)]
+        print("🎯 Найден сервер: " .. targetServer)
+       
+        local success = pcall(function()
+            TeleportService:TeleportToPlaceInstance(placeId, targetServer)
+        end)
+       
+        if not success then
+            print("⚠️ Ошибка телепорта, пробую запасной вариант...")
+            TeleportService:Teleport(placeId)
+        end
+       
+        return true
+    else
+        print("⚠️ Нет доступных серверов, использую стандартный телепорт...")
+        pcall(function()
+            TeleportService:Teleport(placeId)
+        end)
+        return true
+    end
 end
 
 -- Основной цикл
@@ -147,7 +189,7 @@ end
 
 -- Авто-запуск с проверкой на первоначальный запуск
 print("========================================")
-print("🤖 MM2 AUTO-SPAM WITH SERVER HOP")
+print("🤖 MM2 AUTO-SPAM WITH IMPROVED SERVER HOP")
 print("📢 Автоматический режим")
 print("📢 Server Hop при запуске → 5 сообщений → Server Hop → Повтор")
 print("========================================")
