@@ -55,92 +55,70 @@ local function sendMessage(text)
     return success1 or success2
 end
 
--- Функция для получения списка серверов (Server Hop) - УПРОЩЕННАЯ
-local function getServers()
+-- Простая функция Server Hop
+local function serverHop()
+    -- Пытаемся получить список серверов
     local servers = {}
     
-    -- Пробуем получить серверы
     local success, result = pcall(function()
-        local url = string.format("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=25", placeId)
-        local response = game:HttpGet(url, true)
-        return HttpService:JSONDecode(response)
+        local url = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=25"
+        local response = game:HttpGetAsync(url)
+        local data = HttpService:JSONDecode(response)
+        return data
     end)
     
     if success and result and result.data then
         for _, server in ipairs(result.data) do
-            -- Исключаем текущий сервер и слишком заполненные
-            if server.id ~= game.JobId and server.playing < (server.maxPlayers or 12) - 2 then
+            if server.id ~= game.JobId and server.playing < (server.maxPlayers or 12) then
                 table.insert(servers, server.id)
             end
         end
     end
     
-    return servers
-end
-
--- Простая функция Server Hop
-local function serverHop()
-    print("🔄 Поиск нового сервера...")
-    
-    local servers = getServers()
-    
     if #servers > 0 then
         -- Выбираем случайный сервер
         local targetServer = servers[math.random(1, #servers)]
         
-        print("🎯 Переход на новый сервер...")
-        
-        -- Пытаемся перейти на найденный сервер
-        local success, errorMsg = pcall(function()
+        local hopSuccess = pcall(function()
             TeleportService:TeleportToPlaceInstance(placeId, targetServer, player)
         end)
         
-        if success then
-            print("✅ Успешный переход на новый сервер!")
+        if hopSuccess then
             return true
-        else
-            print("⚠️ Ошибка перехода: " .. tostring(errorMsg))
         end
     end
     
-    -- Если не удалось, пробуем обычный Teleport
-    print("🔄 Пробую обычный переход...")
-    local success2 = pcall(function()
+    -- Если не получилось, обычный телепорт
+    pcall(function()
         TeleportService:Teleport(placeId)
     end)
     
-    return success2
+    return false
 end
 
--- Основная функция - ПРОСТАЯ И НАДЕЖНАЯ
-local function startAutoSpam()
-    print("🤖 Авто-спам активирован!")
+-- Основная функция
+local function mainLoop()
+    print("🤖 Авто-спам запущен! Server Hop активен.")
     
     while getgenv().AutoSpamEnabled do
-        -- Ждем немного после загрузки
+        -- Ждем загрузки
         task.wait(5)
         
-        -- Ждем загрузки чата
-        local chatLoaded = false
+        -- Проверяем чат
+        local chatReady = false
         for i = 1, 5 do
             local oldChat = pcall(function() 
                 return game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents") 
             end)
             
-            local newChat = pcall(function()
-                return game:GetService("TextChatService"):FindFirstChild("TextChannels")
-            end)
-            
-            if oldChat or newChat then
-                chatLoaded = true
+            if oldChat then
+                chatReady = true
                 break
             end
             task.wait(1)
         end
         
-        if chatLoaded then
-            print("✅ Чат готов, начинаю отправку...")
-            
+        if chatReady then
             -- Отправляем 5 сообщений
             local shuffled = shuffle(messages)
             
@@ -151,48 +129,56 @@ local function startAutoSpam()
                 print("📢 Сообщение " .. i .. "/5 отправлено")
                 
                 if i < 5 then
-                    task.wait(math.random(2, 3)) -- Задержка между сообщениями
+                    task.wait(math.random(2, 3))
                 end
             end
             
             -- Server Hop после 5 сообщений
             if getgenv().AutoSpamEnabled then
-                print("🔄 Server Hop после 5 сообщений...")
-                task.wait(1) -- Короткая пауза
+                print("🔄 Делаю Server Hop...")
+                task.wait(1)
                 serverHop()
             end
             
         else
-            print("⚠️ Чат не загрузился, пробую Server Hop...")
+            -- Если чат не загрузился, пробуем перезайти
+            print("⚠️ Чат недоступен, делаю Server Hop...")
             task.wait(2)
             serverHop()
         end
         
-        -- Ждем перед повторной попыткой если что-то пошло не так
-        task.wait(10)
+        -- Задержка перед следующей итерацией
+        task.wait(8)
     end
-    
-    print("⏹️ Авто-спам остановлен")
 end
 
--- Авто-запуск сразу
+-- Авто-запуск сразу без GUI
 print("========================================")
-print("🤖 MM2 AUTO-SPAM СЕРВЕР ХОП")
-print("📢 Godly за гривны | Hexon_Shop")
+print("🤖 MM2 AUTO-SPAM - АВТОМАТИЧЕСКИЙ РЕЖИМ")
+print("📢 Авто-реклама Godly | Hexon_Shop")
+print("📢 5 сообщений -> Server Hop -> Повтор")
 print("========================================")
 
-task.wait(2) -- Короткая задержка перед стартом
+-- Ждем немного и запускаем
+task.wait(3)
 
--- Запускаем основной цикл
-coroutine.wrap(function()
-    startAutoSpam()
-end)()
+-- Запускаем в отдельном потоке
+coroutine.wrap(mainLoop)()
 
--- Функция остановки (можно вызвать из консоли)
+print("✅ Скрипт запущен автоматически!")
+print("ℹ️ Работает в фоновом режиме")
+
+-- Функция для остановки
 getgenv().StopSpam = function()
     getgenv().AutoSpamEnabled = false
-    print("⏹️ Спам остановлен")
+    print("⏹️ Спам остановлен вручную")
 end
 
-print("✅ Скрипт запущен автоматически")
+-- Авто-остановка при выходе из игры
+game:GetService("Players").PlayerRemoving:Connect(function(leavingPlayer)
+    if leavingPlayer == player then
+        getgenv().AutoSpamEnabled = false
+    end
+end)
+
 print("ℹ️ Для остановки введите: StopSpam()")
